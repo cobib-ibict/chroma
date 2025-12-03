@@ -476,13 +476,14 @@ class PersistentRagHandler(RagHandler):
       try:
         query = input("\nType your question (use \"Ctrl+C\" or type \"quit\" to exit): ").strip()
 
+        if not query:
+          print(">> Type a valid question.")
+          continue
+
         if query.lower() in ['quit', 'q', 'exit', 'sair']:
           raise KeyboardInterrupt
 
-        if query:
-          self.search(query_text = query, n_results = n_results)
-        else:
-          print(">> Type a valid question.")
+        self.search(query_text = query, n_results = n_results)
 
       except KeyboardInterrupt:
         print("\n>> Ending session...")
