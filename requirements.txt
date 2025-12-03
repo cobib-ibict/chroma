@@ -1,3 +1,4 @@
 chromadb
 ijson
+openai
 sentence-transformers

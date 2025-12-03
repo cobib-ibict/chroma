@@ -20,7 +20,10 @@ import abc
 import asyncio
 import chromadb
 import ijson
+import json
+import openai
 import pathlib
+import re
 import time
 # import traceback # Debugging (t.print_stack())
 
@@ -36,6 +39,9 @@ RAG_ERROR_NOJSONFILEPATH   = 1
 RAG_ERROR_NOCLIENT         = 2
 RAG_ERROR_NOCOLLECTION     = 3
 RAG_ERROR_NOCOLLECTIONNAME = 4
+
+# OpenAI
+client_ai = openai.OpenAI(api_key="")
 
 
 
@@ -576,6 +582,138 @@ class AsyncHttpRagHandler(RagHandler):
 
 
 
+# region MARK: OpenAI
+
+# Case 1 of OpenAI request
+def search_colecao(titulo: str, biblioteca: bool = False):
+  '''
+  Search in the API for the collection.
+  It starts by searching for the title of "publicação seriada" or "biblioteca", getting its id.
+  And then by searching for the collection with that id.
+
+  Args:
+    titulo (str): The title of the "publicação seriada" or "biblioteca".
+    biblioteca (bool, optional): If the collection is a "biblioteca" (True) or "publicação seriada" (False).
+  '''
+
+  print(f"\n>> Busca via API para COLECAO")
+  return { 'titulo': titulo, 'biblioteca': biblioteca }
+
+def get_json_from_text(text: str):
+  '''
+  Get the JSON from the text.
+
+  Args:
+    text (str): The text to get the JSON from.
+
+  Returns:
+    dict: The JSON data.
+  '''
+
+  # Slice the JSON from the string
+  json_slice = re.search(r"\{[\s\S]*\}", text)
+  json_slice = json_slice.group(0) if json_slice else None
+
+  # Transform it to JSON
+  try:
+    json_data = json.loads(json_slice) if json_slice else None
+  except json.JSONDecodeError:
+    json_data = None
+
+  return json_data
+
+# Init the AI terminal
+def init_ai_terminal(rag_search: PersistentRagHandler, n_results: int = 10):
+  print(">> RAG Search")
+
+  while True:
+    try:
+      query = input("\nType your question (use \"Ctrl+C\" or type \"quit\" to exit): ").strip()
+
+      # Initialize function variables
+      func      = None
+      func_args = None
+
+      if not query:
+        print(">> Type a valid question.")
+        continue
+
+      if query.lower() in ['quit', 'q', 'exit', 'sair']:
+        raise KeyboardInterrupt
+
+      # Call OpenAI
+      response = client_ai.responses.create(
+        model = 'gpt-4o-mini',
+        input = (
+          'Você é um roteador semântico que só responde em formato JSON com as informações requisitadas.\n\n'
+          f'"Requisição do usuário": {query}\n\n'
+          '* Caso 1:\n'
+          'Preciso de 2 informações extraídas da "requisição do usuário".\n'
+          'Quando a "requisição do usuário" mencionar "coleções de determinada publicação seriada" (ou revista/jornal/obra/etc), ou "coleções de determinada biblioteca", identifique o "título da publicação seriada" ou o "título da biblioteca".\n'
+          'O "nome da função" para este caso é sempre "search_colecao".'
+          'A sua resposta deve estar sempre no seguinte formato JSON (não quero nada além disso):\n'
+          '```json\n{ "func": "nome da função", "publicacao": "título da publicação" }\n```\n'
+          'ou\n'
+          '```json\n{ "func": "nome da função", "biblioteca": "título da biblioteca" }\n```\n\n'
+          '* Caso final:'
+          'Em caso de não identificar nenhum caso acima, sua resposta deve ser:'
+          '```json\n{ }\n```\n\n'
+          'Notas importantes:\n'
+          '* Se algum valor do JSON estiver sintaticamente errado ou faltando acentuação, exceto pelo valor da "func" (obviamente), corrija se tiver certeza de como é o correto (caso contrário, mantenha como está). Por exemplo, "Cieência da computacao" seria corrigo por "Ciência da Computação".'
+        ),
+      )
+
+      # Get output (which has always length 1, for our model)
+      response_output = response.output[0]
+
+      # print(f"> AI output: {response_output}\n") # -- For debug --
+
+      # Received a message response
+      if response_output.type == 'message':
+
+        # print(f"> Response content: {response_output.content}\n") # -- For debug --
+
+        response_text = response_output.content[0].text
+
+        # print(f"> Response text: {response_text}\n") # -- For debug --
+
+        # Get the JSON from the text
+        json_data = get_json_from_text(response_text)
+
+        # print(f"> JSON data: {json.dumps(json_data, indent = 2, ensure_ascii = False) if json_data else None}\n") # -- For debug --
+
+        if json_data and json_data.get('func'):
+
+          # Get the function name
+          func_name = json_data.get('func')
+
+          # Get the function arguments
+          func_args = { key: value for key, value in json_data.items() if key != 'func' }
+
+          # print(f"> Function name: {func_name}\n") # -- For debug --
+          # print(f"> Function arguments: {json.dumps(func_args, indent = 2, ensure_ascii = False)}\n") # -- For debug --
+
+          # Get the function
+          func = globals().get(func_name)
+
+          # print(f"> Function: {func}\n") # -- For debug --
+
+      # Call the function
+      if func:
+        func(func_args) # Todo: do something with the results of this function
+
+      # Default: RAG search
+      else:
+        rag_search.search(query, n_results=n_results)
+
+    except KeyboardInterrupt:
+      print("\n>> Ending session...")
+      break
+
+# endregion
+
+
+
 
 
 # region MARK: Main
@@ -636,6 +774,19 @@ async def main():
   # print("> Embedding function has been created successfully.\n")
   # rag_search = PersistentRagHandler(client_path = f'{PROJECT_ROOT}/output', collection_name = 'data', embedding_function = embedding_function)
   # rag_search.init_search_terminal_mode(n_results = 10)
+
+
+
+  '''
+  Search API using OpenAI handling or in a vector database
+  '''
+
+  # Init search in AI terminal mode
+  print(">> Creating embedding function...")
+  embedding_function = chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction(model_name = 'paraphrase-multilingual-MiniLM-L12-v2')
+  print("> Embedding function has been created successfully.\n")
+  rag_search = PersistentRagHandler(client_path = f'{PROJECT_ROOT}/output', collection_name = 'data', embedding_function = embedding_function)
+  init_ai_terminal(rag_search, n_results = 3)
 
 
 
