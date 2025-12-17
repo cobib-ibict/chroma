@@ -597,7 +597,7 @@ def search_colecao(titulo: str, biblioteca: bool = False):
   '''
 
   print(f"\n>> Busca via API para COLECAO")
-  return { 'titulo': titulo, 'biblioteca': biblioteca }
+  print({ 'titulo': titulo, 'biblioteca': biblioteca })
 
 def get_json_from_text(text: str):
   '''
