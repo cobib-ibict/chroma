@@ -19,13 +19,18 @@ Future update:
 import abc
 import asyncio
 import chromadb
+import dotenv
 import ijson
 import json
 import openai
+import os
 import pathlib
 import re
 import time
-# import traceback # Debugging (t.print_stack())
+# import traceback # Debugging (t.print_stack())import os
+
+# Read .env file content
+dotenv.load_dotenv()
 
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
@@ -41,7 +46,7 @@ RAG_ERROR_NOCOLLECTION     = 3
 RAG_ERROR_NOCOLLECTIONNAME = 4
 
 # OpenAI
-client_ai = openai.OpenAI(api_key="")
+client_ai = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 
@@ -585,7 +590,7 @@ class AsyncHttpRagHandler(RagHandler):
 # region MARK: OpenAI
 
 # Case 1 of OpenAI request
-def search_colecao(titulo: str, biblioteca: bool = False):
+def search_colecao(data: dict):
   '''
   Search in the API for the collection.
   It starts by searching for the title of "publicação seriada" or "biblioteca", getting its id.
@@ -597,7 +602,18 @@ def search_colecao(titulo: str, biblioteca: bool = False):
   '''
 
   print(f"\n>> Busca via API para COLECAO")
-  print({ 'titulo': titulo, 'biblioteca': biblioteca })
+
+  publicacao = (data.get('publicacao') or '').strip()
+  biblioteca = (data.get('biblioteca') or '').strip()
+
+  if publicacao:
+    print(f"> Publicação seriada: {publicacao}")
+
+  elif biblioteca:
+    print(f"> Biblioteca: {biblioteca}")
+
+  else:
+    print(f"Não foi possível executar a busca com os parâmetros fornecidos:\n{data}")
 
 def get_json_from_text(text: str):
   '''
